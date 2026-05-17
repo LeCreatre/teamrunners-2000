@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>TEAM University Runner</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #16213e;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+            touch-action: none;
+        }
+        
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .screen {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(15, 52, 96, 0.95);
+            padding: 40px 30px;
+            border: 4px solid #e94560;
+            border-radius: 8px;
+            pointer-events: auto;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .active {
+            display: flex;
+        }
+
+        h1, h2, p {
+            color: #fff;
+            margin: 10px 0;
+            text-transform: uppercase;
+        }
+
+        h1 { font-size: 28px; color: #e94560; text-shadow: 2px 2px 0 #000; }
+        
+        .btn {
+            background-color: #e94560;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            margin: 10px;
+            font-size: 18px;
+            font-family: inherit;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            border-radius: 4px;
+            box-shadow: 0 5px 0 #8b1e34;
+            transition: transform 0.1s;
+        }
+
+        .btn:active {
+            transform: translateY(5px);
+            box-shadow: none;
+        }
+
+        #score-hud {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            pointer-events: none;
+            text-shadow: 2px 2px 0 #000;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+    <div id="score-hud">СЧЕТ: <span id="scoreVal">0</span></div>
+
+    <div id="ui-layer">
+        <div id="startScreen" class="screen active">
+            <h1>TEAM Runner</h1>
+            <button class="btn" id="startBtn">ИГРАТЬ</button>
+        </div>
+
+        <div id="gameOverScreen" class="screen">
+            <h1>ИГРА ОКОНЧЕНА</h1>
+            <h2>Счет: <span id="finalScore">0</span></h2>
+            <button class="btn" id="restartBtn">Начать снова</button>
+            <button class="btn" id="menuBtn">В Главное меню</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const scoreVal = document.getElementById('scoreVal');
+        const finalScore = document.getElementById('finalScore');
+
+        let isPlaying = false;
+        let score = 0;
+        let frame = 0;
+        let gameSpeed = 6;
+        let obstacles = [];
+        let animationId;
+
+        const GRAVITY = 0.6;
+        const JUMP_FORCE = -11;
+
+        class Player {
+            constructor() {
+                this.width = 60; 
+                this.height = 70;
+                this.x = 40; 
+                this.y = canvas.height - this.height - 100;
+                this.dy = 0;
+                this.isGrounded = false;
+                
+                this.image = new Image();
+                this.image.src = 'create_a_jumping_mascot_in_202605171648.png;
+            }
+
+            jump() {
+                if (this.isGrounded) {
+                    this.dy = JUMP_FORCE;
+                    this.isGrounded = false;
+                }
+            }
+
+            update() {
+                this.dy += GRAVITY;
+                this.y += this.dy;
+
+                const groundY = canvas.height - 100;
+                if (this.y + this.height >= groundY) {
+                    this.y = groundY - this.height;
+                    this.dy = 0;
+                    this.isGrounded = true;
+                }
+            }
+
+            draw() {
+                if (this.image.complete) {
+                    ctx.drawImage(this.image, this.x, this.y, this.width, this.height);
+                } else {
+                    ctx.fillStyle = '#e94560';
+                    ctx.fillRect(this.x, this.y, this.width, this.height);
+                }
+            }
+        }
+
+        class Obstacle {
+            constructor() {
+                this.width = 40 + Math.random() * 20;
+                this.height = 50 + Math.random() * 40;
+                this.x = canvas.width;
+                this.y = canvas.height - 100 - this.height;
+            }
+
+            update() {
+                this.x -= gameSpeed;
+            }
+
+            draw() {
+                ctx.fillStyle = '#0f3460';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+
+        let mascot = new Player();
+
+        function spawnObstacles() {
+            if (frame % (Math.floor(Math.random() * 70) + 70) === 0) {
+                obstacles.push(new Obstacle());
+            }
+        }
+
+        function checkCollision(player, obs) {
+            const hitX = player.x + 10;
+            const hitY = player.y + 10;
+            const hitW = player.width - 20;
+            const hitH = player.height - 15;
+
+            return (
+                hitX < obs.x + obs.width &&
+                hitX + hitW > obs.x &&
+                hitY < obs.y + obs.height &&
+                hitY + hitH > obs.y
+            );
+        }
+
+        function updateGame() {
+            if (!isPlaying) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
+
+            mascot.update();
+            mascot.draw();
+
+            spawnObstacles();
+
+            for (let i = 0; i < obstacles.length; i++) {
+                let obs = obstacles[i];
+                obs.update();
+                obs.draw();
+
+                if (obs.x + obs.width < 0) {
+                    obstacles.splice(i, 1);
+                    i--;
+                    continue;
+                }
+
+                if (checkCollision(mascot, obs)) {
+                    gameOver();
+                    return;
+                }
+            }
+
+            if (frame % 10 === 0) {
+                score++;
+                scoreVal.innerText = score;
+                if (score % 300 === 0) gameSpeed += 0.5;
+            }
+
+            frame++;
+            animationId = requestAnimationFrame(updateGame);
+        }
+
+        function resetGame() {
+            mascot = new Player();
+            obstacles = [];
+            score = 0;
+            frame = 0;
+            gameSpeed = 6;
+            scoreVal.innerText = score;
+        }
+
+        function startGame() {
+            startScreen.classList.remove('active');
+            gameOverScreen.classList.remove('active');
+            resetGame();
+            isPlaying = true;
+            updateGame();
+        }
+
+        function gameOver() {
+            isPlaying = false;
+            cancelAnimationFrame(animationId);
+            finalScore.innerText = score;
+            gameOverScreen.classList.add('active');
+        }
+
+        function showMenu() {
+            gameOverScreen.classList.remove('active');
+            startScreen.classList.add('active');
+        }
+
+        function handleJump(e) {
+            if (isPlaying) {
+                if(e.cancelable) e.preventDefault();
+                mascot.jump();
+            }
+        }
+
+        window.addEventListener('touchstart', handleJump, { passive: false });
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') handleJump(e);
+        });
+
+        document.getElementById('startBtn').addEventListener('click', startGame);
+        document.getElementById('restartBtn').addEventListener('click', startGame);
+        document.getElementById('menuBtn').addEventListener('click', showMenu);
+    </script>
+</body>
+</html>
